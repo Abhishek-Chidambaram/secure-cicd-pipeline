@@ -1,0 +1,91 @@
+# GitHub Actions workflow for secure CI/CD pipeline
+name: security
+
+on:
+  push:
+    branches: [ main ]
+  workflow_dispatch:
+
+permissions:
+  contents: write
+  pages: write
+  id-token: write
+
+jobs:
+  security_checks:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Set up Python
+        uses: actions/setup-python@v4
+        with:
+          python-version: 3.11
+
+      - name: Install dependencies (for Bandit)
+        run: |
+          python -m pip install --upgrade pip
+          pip install bandit
+
+      - name: Static Code Analysis with Bandit
+        run: |
+          bandit -r app/
+
+      - name: Dependency Scan with Snyk (container)
+        env:
+          SNYK_TOKEN: ${{ secrets.SNYK_TOKEN }}
+        run: |
+          docker pull snyk/snyk:python-3.11
+          docker run --rm -e SNYK_TOKEN=${SNYK_TOKEN} -v $(pwd):/project -w /project snyk/snyk:python-3.11 snyk test --file=requirements.txt --token=${SNYK_TOKEN}
+
+      - name: Docker Build
+        run: |
+          docker build -t secure-flask-app .
+
+      - name: Container Scan with Trivy
+        run: |
+          docker pull aquasec/trivy:0.18.3 || true
+          docker run --rm -v /var/run/docker.sock:/var/run/docker.sock aquasec/trivy:0.18.3 image secure-flask-app
+
+      - name: Secrets Scanning with Gitleaks
+        uses: zricethezav/gitleaks-action@v2
+        with:
+          args: --no-git --path=.
+
+      # run the container in background for DAST
+      - name: Start container
+        run: |
+          docker run -d --name app-under-test -p 5001:5001 secure-flask-app
+          # wait for app
+          for i in {1..20}; do curl -sS http://localhost:5001 && break || sleep 1; done
+
+      - name: Run OWASP ZAP Full Scan
+        uses: zaproxy/action-full-scan@v0.7.0
+        with:
+          target: 'http://localhost:5001'
+
+      - name: Collect ZAP report and publish to gh-pages
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          REPORT_NAME="zap_report_$(date +'%Y%m%d%H%M%S').html"
+          if [ -f report_html.html ]; then
+            mv report_html.html $REPORT_NAME
+            git config --global user.name "github-actions"
+            git config --global user.email "actions@github.com"
+            git fetch origin
+            git checkout --orphan gh-pages || git checkout gh-pages
+            git rm -rf . || true
+            cp $REPORT_NAME index.html
+            git add index.html
+            git commit -m "Publish ZAP report: $REPORT_NAME (Run ID: $GITHUB_RUN_ID)" || true
+            git push https://x-access-token:${GITHUB_TOKEN}@github.com/${{ github.repository }} gh-pages --force
+          else
+            echo "ZAP report not found"
+          fi
+
+      - name: Stop container
+        if: always()
+        run: |
+          docker stop app-under-test || true
