@@ -13,8 +13,8 @@ def add_security_headers(response):
     # Prevent MIME type sniffing
     response.headers['X-Content-Type-Options'] = 'nosniff'
     
-    # Content Security Policy
-    response.headers['Content-Security-Policy'] = "default-src 'self'"
+    # Content Security Policy with proper fallbacks
+    response.headers['Content-Security-Policy'] = "default-src 'self'; script-src 'self'; style-src 'self'; img-src 'self'; font-src 'self'; connect-src 'self'; frame-ancestors 'none'"
     
     # Permissions Policy
     response.headers['Permissions-Policy'] = 'geolocation=(), microphone=(), camera=()'
