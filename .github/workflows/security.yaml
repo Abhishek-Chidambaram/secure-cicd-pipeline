@@ -76,22 +76,23 @@ jobs:
           args: --no-git --path=.
 
       # run the container in background for DAST
-      - name: Start container
+            - name: Start container
         run: |
           docker run -d --name app-under-test -p 5001:5001 secure-flask-app
-          # wait for app
+          # wait for app to be ready
           for i in {1..20}; do curl -sS http://localhost:5001 && break || sleep 1; done
 
       - name: Run OWASP ZAP Full Scan
         uses: zaproxy/action-full-scan@v0.7.0
         with:
           target: 'http://localhost:5001'
-          fail_action: false  # Don't fail on warnings, just report them
+          fail_action: false           # don't fail workflow on warnings
+          github_token: ${{ secrets.ZAP_GITHUB_PAT }}  # use PAT for issue creation
 
       - name: Collect ZAP report and publish to gh-pages
-        if: always()  # Always run this step even if previous steps had warnings
+        if: always()
         env:
-          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          GITHUB_TOKEN: ${{ secrets.ZAP_GITHUB_PAT }}  # PAT for pushing report
         run: |
           REPORT_NAME="zap_report_$(date +'%Y%m%d%H%M%S').html"
           if [ -f report_html.html ]; then
@@ -118,31 +119,24 @@ jobs:
         if: always()
         run: |
           docker stop app-under-test || true
+          docker rm app-under-test || true  # also remove container
 
-      # Deploy to Docker Hub only if all security scans pass
       - name: Login to Docker Hub
-        if: success()  # Only run if all previous steps succeeded
+        if: success()
         uses: docker/login-action@v3
         with:
           username: ${{ secrets.DOCKERHUB_USERNAME }}
           password: ${{ secrets.DOCKERHUB_TOKEN }}
 
       - name: Build and Push to Docker Hub
-        if: success()  # Only run if all previous steps succeeded
+        if: success()
         run: |
           echo "All security scans passed! Building and pushing to Docker Hub..."
-          
-          # Tag with commit SHA and latest
           COMMIT_SHA=$(git rev-parse --short HEAD)
           IMAGE_NAME="${{ secrets.DOCKERHUB_USERNAME }}/secure-flask-app"
-          
-          # Build with multiple tags
           docker build -t ${IMAGE_NAME}:${COMMIT_SHA} -t ${IMAGE_NAME}:latest .
-          
-          # Push both tags
           docker push ${IMAGE_NAME}:${COMMIT_SHA}
           docker push ${IMAGE_NAME}:latest
-          
           echo "Successfully pushed to Docker Hub:"
           echo "- ${IMAGE_NAME}:${COMMIT_SHA}"
           echo "- ${IMAGE_NAME}:latest"
@@ -162,4 +156,4 @@ jobs:
             echo "🚀 Docker Image: Published to Docker Hub"
           else
             echo "❌ Docker Image: Not published due to security issues"
-          fi
+
