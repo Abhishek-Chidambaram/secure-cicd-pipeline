@@ -79,28 +79,29 @@ jobs:
       - name: Start container
         run: |
           docker run -d --name app-under-test -p 5001:5001 secure-flask-app
-          # wait for app to be ready
-          for i in {1..20}; do curl -sS http://localhost:5001 && break || sleep 1; done
+          # wait for app to be ready (HTTP 200)
+          for i in {1..20}; do
+            status=$(curl -o /dev/null -s -w "%{http_code}\n" http://localhost:5001)
+            [ "$status" -eq 200 ] && break || sleep 1
+          done
 
       - name: Run OWASP ZAP Full Scan
         uses: zaproxy/action-full-scan@v0.7.0
         with:
           target: 'http://localhost:5001'
-          fail_action: false           # don't fail workflow on warnings
+          fail_action: false
           token: ${{ secrets.ZAP_GITHUB_PAT }}    # correct way to pass PAT
           allow_issue_writing: true
 
       - name: Count ZAP Warnings
         id: zap_warnings
         run: |
+          WARN_COUNT=0
           if [ -f report_json.json ]; then
             WARN_COUNT=$(jq '[.alerts[] | select(.risk == "Medium" or .risk == "High")] | length' report_json.json)
-            echo "ZAP_WARNINGS=$WARN_COUNT" >> $GITHUB_ENV
-            echo "ZAP found $WARN_COUNT medium/high warnings"
-          else
-            echo "ZAP_WARNINGS=0" >> $GITHUB_ENV
-            echo "ZAP report not found, assuming 0 warnings"
           fi
+          echo "ZAP_WARNINGS=$WARN_COUNT" >> $GITHUB_ENV
+          echo "ZAP found $WARN_COUNT medium/high warnings"
 
       - name: Collect ZAP report and publish to gh-pages
         if: always()
@@ -135,14 +136,14 @@ jobs:
           docker rm app-under-test || true  # also remove container
 
       - name: Login to Docker Hub
-        if: success() && env.ZAP_WARNINGS != '' && env.ZAP_WARNINGS < 5  # only if warnings < 5
+        if: success() && env.ZAP_WARNINGS && (env.ZAP_WARNINGS < 5)  # only if warnings < 5
         uses: docker/login-action@v3
         with:
           username: ${{ secrets.DOCKERHUB_USERNAME }}
           password: ${{ secrets.DOCKERHUB_TOKEN }}
 
       - name: Build and Push to Docker Hub
-        if: success() && env.ZAP_WARNINGS != '' && env.ZAP_WARNINGS < 5  # only if warnings < 5
+        if: success() && env.ZAP_WARNINGS && (env.ZAP_WARNINGS < 5)  # only if warnings < 5
         run: |
           echo "All security scans passed (or warnings < 5)! Building and pushing to Docker Hub..."
           COMMIT_SHA=$(git rev-parse --short HEAD)
