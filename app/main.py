@@ -1,8 +1,17 @@
 # Main application entry point
 # app/main.py
+import os
 from flask import Flask
+from dotenv import load_dotenv
+
+# Load environment variables from .env file (for local development)
+load_dotenv()
 
 app = Flask(__name__)
+
+# Configure app with secrets from environment
+app.config['SECRET_KEY'] = os.environ.get('SECRET_KEY', 'dev-key-change-in-production')
+app.config['DATABASE_URL'] = os.environ.get('DATABASE_URL', 'sqlite:///app.db')
 
 @app.after_request
 def add_security_headers(response):
@@ -30,7 +39,13 @@ def add_security_headers(response):
 
 @app.route("/")
 def index():
-    return "Hello from secure-cicd-pipeline!"
+    env = os.environ.get('FLASK_ENV', 'development')
+    return f"Hello from secure-cicd-pipeline! Environment: {env}"
+
+@app.route("/health")
+def health():
+    """Health check endpoint"""
+    return {"status": "healthy", "environment": os.environ.get('FLASK_ENV', 'development')}
 
 if __name__ == "__main__":
     # Use environment variable for host, default to localhost for security

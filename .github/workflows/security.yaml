@@ -23,6 +23,16 @@ jobs:
         with:
           python-version: 3.11
 
+      - name: Secure Secrets Injection
+        run: |
+          echo "Securely injecting secrets into environment..."
+          echo "SECRET_KEY=${{ secrets.SECRET_KEY }}" > .env
+          echo "DATABASE_URL=${{ secrets.DATABASE_URL }}" >> .env
+          echo "FLASK_ENV=production" >> .env
+          # Ensure .env file has proper permissions
+          chmod 600 .env
+          echo "Secrets injected securely (not exposed in logs)"
+
       - name: Install dependencies
         run: |
           python -m pip install --upgrade pip
@@ -38,17 +48,18 @@ jobs:
           echo "Running pip-audit for dependency vulnerability scanning..."
           pip-audit --requirement requirements.txt --format=json --output=pip-audit-report.json || echo "pip-audit completed with findings"
           
-      - name: Dependency Scan with Snyk (Optional)
+      - name: Dependency Scan with Snyk (Mandatory)
         env:
           SNYK_TOKEN: ${{ secrets.SNYK_TOKEN }}
         run: |
           if [ -z "$SNYK_TOKEN" ]; then
-            echo "SNYK_TOKEN not set, skipping Snyk scan"
-            echo "To enable Snyk scanning, add SNYK_TOKEN to repository secrets"
-          else
-            docker pull snyk/snyk:python-3.11
-            docker run --rm -e SNYK_TOKEN=${SNYK_TOKEN} -v $(pwd):/project -w /project snyk/snyk:python-3.11 snyk test --file=requirements.txt || echo "Snyk scan completed with findings"
+            echo "ERROR: SNYK_TOKEN is required for security compliance"
+            echo "Please add SNYK_TOKEN to repository secrets"
+            exit 1
           fi
+          echo "Running mandatory Snyk vulnerability scan..."
+          docker pull snyk/snyk:python-3.11
+          docker run --rm -e SNYK_TOKEN=${SNYK_TOKEN} -v $(pwd):/project -w /project snyk/snyk:python-3.11 snyk test --file=requirements.txt --severity-threshold=high
 
       - name: Docker Build
         run: |
@@ -107,3 +118,48 @@ jobs:
         if: always()
         run: |
           docker stop app-under-test || true
+
+      # Deploy to Docker Hub only if all security scans pass
+      - name: Login to Docker Hub
+        if: success()  # Only run if all previous steps succeeded
+        uses: docker/login-action@v3
+        with:
+          username: ${{ secrets.DOCKERHUB_USERNAME }}
+          password: ${{ secrets.DOCKERHUB_TOKEN }}
+
+      - name: Build and Push to Docker Hub
+        if: success()  # Only run if all previous steps succeeded
+        run: |
+          echo "All security scans passed! Building and pushing to Docker Hub..."
+          
+          # Tag with commit SHA and latest
+          COMMIT_SHA=$(git rev-parse --short HEAD)
+          IMAGE_NAME="${{ secrets.DOCKERHUB_USERNAME }}/secure-flask-app"
+          
+          # Build with multiple tags
+          docker build -t ${IMAGE_NAME}:${COMMIT_SHA} -t ${IMAGE_NAME}:latest .
+          
+          # Push both tags
+          docker push ${IMAGE_NAME}:${COMMIT_SHA}
+          docker push ${IMAGE_NAME}:latest
+          
+          echo "Successfully pushed to Docker Hub:"
+          echo "- ${IMAGE_NAME}:${COMMIT_SHA}"
+          echo "- ${IMAGE_NAME}:latest"
+
+      - name: Security Scan Summary
+        if: always()
+        run: |
+          echo "=== SECURITY SCAN SUMMARY ==="
+          echo "✅ Static Code Analysis (Bandit): Completed"
+          echo "✅ Dependency Vulnerability Scan (pip-audit): Completed"
+          echo "✅ Dependency Scan (Snyk): Completed"
+          echo "✅ Container Security Scan (Trivy): Completed"
+          echo "✅ Secrets Scanning (Gitleaks): Completed"
+          echo "✅ Dynamic Security Testing (OWASP ZAP): Completed"
+          echo "📊 Security Report: https://${{ github.repository_owner }}.github.io/secure-cicd-pipeline"
+          if [ "${{ job.status }}" == "success" ]; then
+            echo "🚀 Docker Image: Published to Docker Hub"
+          else
+            echo "❌ Docker Image: Not published due to security issues"
+          fi

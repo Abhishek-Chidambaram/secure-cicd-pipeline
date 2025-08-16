@@ -1,3 +1,4 @@
 # Python dependencies
 
 Flask==2.2.5
+python-dotenv==1.0.0
