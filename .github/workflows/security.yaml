@@ -75,7 +75,7 @@ jobs:
         with:
           args: --no-git --path=.
 
-      # run the container in background for DAST
+      # Run the container in background for DAST
       - name: Start container
         run: |
           docker run -d --name app-under-test -p 5001:5001 secure-flask-app
@@ -88,6 +88,18 @@ jobs:
           target: 'http://localhost:5001'
           fail_action: false           # don't fail workflow on warnings
           github_token: ${{ secrets.ZAP_GITHUB_PAT }}  # use PAT for issue creation
+
+      - name: Count ZAP Warnings
+        id: zap_warnings
+        run: |
+          if [ -f report_json.json ]; then
+            WARN_COUNT=$(jq '[.alerts[] | select(.risk == "Medium" or .risk == "High")] | length' report_json.json)
+            echo "ZAP_WARNINGS=$WARN_COUNT" >> $GITHUB_ENV
+            echo "ZAP found $WARN_COUNT medium/high warnings"
+          else
+            echo "ZAP_WARNINGS=0" >> $GITHUB_ENV
+            echo "ZAP report not found, assuming 0 warnings"
+          fi
 
       - name: Collect ZAP report and publish to gh-pages
         if: always()
@@ -122,16 +134,16 @@ jobs:
           docker rm app-under-test || true  # also remove container
 
       - name: Login to Docker Hub
-        if: success()
+        if: success() && env.ZAP_WARNINGS < 5  # only if warnings < 5
         uses: docker/login-action@v3
         with:
           username: ${{ secrets.DOCKERHUB_USERNAME }}
           password: ${{ secrets.DOCKERHUB_TOKEN }}
 
       - name: Build and Push to Docker Hub
-        if: success()
+        if: success() && env.ZAP_WARNINGS < 5  # only if warnings < 5
         run: |
-          echo "All security scans passed! Building and pushing to Docker Hub..."
+          echo "All security scans passed (or warnings < 5)! Building and pushing to Docker Hub..."
           COMMIT_SHA=$(git rev-parse --short HEAD)
           IMAGE_NAME="${{ secrets.DOCKERHUB_USERNAME }}/secure-flask-app"
           docker build -t ${IMAGE_NAME}:${COMMIT_SHA} -t ${IMAGE_NAME}:latest .
@@ -152,8 +164,8 @@ jobs:
           echo "✅ Secrets Scanning (Gitleaks): Completed"
           echo "✅ Dynamic Security Testing (OWASP ZAP): Completed"
           echo "📊 Security Report: https://${{ github.repository_owner }}.github.io/secure-cicd-pipeline"
-          if [ "${{ job.status }}" == "success" ]; then
+          if [ "${{ job.status }}" == "success" ] && [ "$ZAP_WARNINGS" -lt 5 ]; then
             echo "🚀 Docker Image: Published to Docker Hub"
           else
-            echo "❌ Docker Image: Not published due to security issues"
-
+            echo "❌ Docker Image: Not published due to security issues or too many ZAP warnings"
+          fi
