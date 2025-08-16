@@ -78,11 +78,35 @@ jobs:
       # Run the container in background for DAST
       - name: Start container
         run: |
-          docker run -d --name app-under-test -p 5001:5001 secure-flask-app
-          # wait for app to be ready (HTTP 200)
-          for i in {1..20}; do
-            status=$(curl -o /dev/null -s -w "%{http_code}\n" http://localhost:5001)
-            [ "$status" -eq 200 ] && break || sleep 1
+          echo "Starting container for security testing..."
+          docker run -d --name app-under-test -p 5001:5001 \
+            -e FLASK_ENV=production \
+            -e SECRET_KEY=test-key-for-security-testing \
+            -e DATABASE_URL=sqlite:///test.db \
+            secure-flask-app
+          
+          echo "Waiting for container to be ready..."
+          sleep 5
+          
+          # Check container status
+          docker ps -a --filter name=app-under-test
+          docker logs app-under-test
+          
+          # Wait for app to be ready (HTTP 200)
+          for i in {1..30}; do
+            echo "Attempt $i: Checking if app is ready..."
+            status=$(curl -o /dev/null -s -w "%{http_code}\n" http://localhost:5001 || echo "000")
+            echo "HTTP Status: $status"
+            if [ "$status" -eq 200 ]; then
+              echo "App is ready!"
+              break
+            fi
+            if [ $i -eq 30 ]; then
+              echo "App failed to start after 30 attempts"
+              docker logs app-under-test
+              exit 1
+            fi
+            sleep 2
           done
 
       - name: Run OWASP ZAP Full Scan
