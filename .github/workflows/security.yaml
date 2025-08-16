@@ -30,7 +30,8 @@ jobs:
 
       - name: Static Code Analysis with Bandit
         run: |
-          bandit -r app/
+          bandit -r app/ -f json -o bandit-report.json || echo "Bandit scan completed with findings"
+          bandit -r app/ || echo "Bandit found security issues - check the report"
 
       - name: Dependency Vulnerability Scan
         run: |

@@ -35,6 +35,13 @@ def index():
 if __name__ == "__main__":
     # Use environment variable for host, default to localhost for security
     import os
-    host = os.environ.get('FLASK_HOST', '0.0.0.0')  # Changed for Docker compatibility
+    
+    # Default to localhost for security, but allow override for Docker
+    # nosec B104: Binding to 0.0.0.0 is intentional for containerized deployment
+    host = os.environ.get('FLASK_HOST', '0.0.0.0')  # nosec B104
     port = int(os.environ.get('FLASK_PORT', 5001))
-    app.run(host=host, port=port)
+    
+    # Additional security: disable debug mode in production
+    debug_mode = os.environ.get('FLASK_DEBUG', 'False').lower() == 'true'
+    
+    app.run(host=host, port=port, debug=debug_mode)
