@@ -75,7 +75,7 @@ jobs:
         with:
           args: --no-git --path=.
 
-      # Run the container in background for DAST
+            # Run the container in background for DAST
       - name: Start container
         run: |
           echo "Starting container for security testing..."
@@ -114,7 +114,7 @@ jobs:
         with:
           target: 'http://localhost:5001'
           fail_action: false
-          token: ${{ secrets.ZAP_GITHUB_PAT }}    # correct way to pass PAT
+          token: ${{ secrets.ZAP_GITHUB_PAT }}
           allow_issue_writing: true
 
       - name: Count ZAP Warnings
@@ -130,18 +130,19 @@ jobs:
       - name: Collect ZAP report and publish to gh-pages
         if: always()
         env:
-          GITHUB_TOKEN: ${{ secrets.ZAP_GITHUB_PAT }}  # PAT for pushing report
+          GITHUB_TOKEN: ${{ secrets.ZAP_GITHUB_PAT }}
         run: |
+          # Use safe timestamp for filenames
           REPORT_NAME="zap_report_$(date +'%Y%m%d%H%M%S').html"
           if [ -f report_html.html ]; then
             echo "Publishing ZAP security report to GitHub Pages..."
-            mv report_html.html $REPORT_NAME
+            mv report_html.html "$REPORT_NAME"
             git config --global user.name "github-actions"
             git config --global user.email "actions@github.com"
             git fetch origin || true
             git checkout --orphan gh-pages || git checkout gh-pages || git switch --orphan gh-pages
             git rm -rf . || true
-            cp $REPORT_NAME index.html
+            cp "$REPORT_NAME" index.html
             echo "# Security Report" > README.md
             echo "Latest security scan report: [View Report](./index.html)" >> README.md
             echo "Generated: $(date)" >> README.md
@@ -157,17 +158,17 @@ jobs:
         if: always()
         run: |
           docker stop app-under-test || true
-          docker rm app-under-test || true  # also remove container
+          docker rm app-under-test || true
 
       - name: Login to Docker Hub
-        if: success() && env.ZAP_WARNINGS && (env.ZAP_WARNINGS < 5)  # only if warnings < 5
+        if: success() && env.ZAP_WARNINGS != '' && [ "$ZAP_WARNINGS" -lt 5 ]
         uses: docker/login-action@v3
         with:
           username: ${{ secrets.DOCKERHUB_USERNAME }}
           password: ${{ secrets.DOCKERHUB_TOKEN }}
 
       - name: Build and Push to Docker Hub
-        if: success() && env.ZAP_WARNINGS && (env.ZAP_WARNINGS < 5)  # only if warnings < 5
+        if: success() && env.ZAP_WARNINGS != '' && [ "$ZAP_WARNINGS" -lt 5 ]
         run: |
           echo "All security scans passed (or warnings < 5)! Building and pushing to Docker Hub..."
           COMMIT_SHA=$(git rev-parse --short HEAD)
