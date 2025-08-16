@@ -76,7 +76,7 @@ jobs:
           args: --no-git --path=.
 
       # run the container in background for DAST
-            - name: Start container
+      - name: Start container
         run: |
           docker run -d --name app-under-test -p 5001:5001 secure-flask-app
           # wait for app to be ready
