@@ -161,14 +161,14 @@ jobs:
           docker rm app-under-test || true
 
       - name: Login to Docker Hub
-        if: success() && env.ZAP_WARNINGS != '' && [ "$ZAP_WARNINGS" -lt 5 ]
+        if: ${{ success() && env.ZAP_WARNINGS != '' && env.ZAP_WARNINGS < 5 }}
         uses: docker/login-action@v3
         with:
           username: ${{ secrets.DOCKERHUB_USERNAME }}
           password: ${{ secrets.DOCKERHUB_TOKEN }}
 
       - name: Build and Push to Docker Hub
-        if: success() && env.ZAP_WARNINGS != '' && [ "$ZAP_WARNINGS" -lt 5 ]
+        if: ${{ success() && env.ZAP_WARNINGS != '' && env.ZAP_WARNINGS < 5 }}
         run: |
           echo "All security scans passed (or warnings < 5)! Building and pushing to Docker Hub..."
           COMMIT_SHA=$(git rev-parse --short HEAD)
@@ -176,10 +176,7 @@ jobs:
           docker build -t ${IMAGE_NAME}:${COMMIT_SHA} -t ${IMAGE_NAME}:latest .
           docker push ${IMAGE_NAME}:${COMMIT_SHA}
           docker push ${IMAGE_NAME}:latest
-          echo "Successfully pushed to Docker Hub:"
-          echo "- ${IMAGE_NAME}:${COMMIT_SHA}"
-          echo "- ${IMAGE_NAME}:latest"
-
+          
       - name: Security Scan Summary
         if: always()
         run: |
