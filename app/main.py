@@ -1,6 +1,6 @@
 # Main application entry point
 # app/main.py
-#Commit 1
+#Trial run for secure CICD pipeline
 import os
 from flask import Flask
 from dotenv import load_dotenv
